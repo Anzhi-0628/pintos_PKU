@@ -4,6 +4,8 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "interrupt.h"
+#include "thread.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -133,7 +135,10 @@ thread_tick (void)
 #endif
   else
     kernel_ticks++;
-
+  
+  /* Loop through the all_list to wake the sleepy threads back to ready_list*/
+  thread_foreach(thread_check_sleep, NULL);
+  
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
@@ -240,6 +245,24 @@ thread_unblock (struct thread *t)
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
+}
+
+/*
+ Check if the specified thread is to unblock
+*/
+void 
+thread_check_sleep(struct thread *t, void* aux)
+{
+  (void)aux;
+  enum intr_level old_level;
+  ASSERT (is_thread (t));
+  old_level = intr_disable (); // disable the interrupt for synchronization
+  if (t->status == THREAD_BLOCKED){
+    if (--t->sleep_ticks==0){
+      thread_unblock(t);
+    }
+  }
+  intr_set_level(old_level);
 }
 
 /** Returns the name of the running thread. */
@@ -549,6 +572,7 @@ thread_schedule_tail (struct thread *prev)
 
    It's not safe to call printf() until thread_schedule_tail()
    has completed. */
+   // wzr: why the printf can not be called?
 static void
 schedule (void) 
 {
