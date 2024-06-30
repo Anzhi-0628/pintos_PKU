@@ -92,8 +92,13 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  struct thread *cur = thread_current ();
+  cur->sleep_ticks = ticks;
+  // put the current thread to all list and sleep, then schedule another thread
+  enum intr_level old_level = intr_disable ();
+  thread_block();
+  intr_set_level (old_level);
+
 }
 
 /** Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -167,10 +172,12 @@ timer_print_stats (void)
 }
 
 /** Timer interrupt handler. */
+// This is also where the global ticks number gets updated. The logic here is that at every tick, the kernel invokes a interrupt
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  // Record that the current thread has already been running for another tick
   thread_tick ();
 }
 
