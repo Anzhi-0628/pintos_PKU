@@ -137,8 +137,8 @@ thread_tick (void)
     kernel_ticks++;
   
   /* Loop through the all_list to wake the sleepy threads back to ready_list*/
-  thread_foreach(thread_check_sleep, NULL);
-  
+  thread_foreach(func_thread_check_sleep, NULL);
+
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
@@ -247,20 +247,62 @@ thread_unblock (struct thread *t)
   intr_set_level (old_level);
 }
 
+/** 
+  Return the elem of the thread with the highest priority
+  Todo: haven't considered the donation yet
+*/
+int
+thread_highest_priority(void){
+  int max_priority = -1;
+  struct list_elem* e;
+  for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e)){
+    struct thread *t = list_entry (e, struct thread, elem);
+    if (t->priority > max_priority){
+      max_priority = t->priority;
+    }
+  }
+  return max_priority;
+}
+
 /*
+Thread preemption by a thread just in ready_list with higher priority
+*/
+void 
+thread_check_preemption(void)
+{
+  ASSERT (intr_get_level () == INTR_OFF);// need to make sure the interrupt is disabled when preemption
+  struct thread *cur = thread_current();
+  if (thread_highest_priority() > cur->priority){
+    // not inside the interrupt, just yield
+    if (!intr_context()){
+      thread_yield();
+    }
+    // else yield on return of the interrupt handler
+    else{
+      intr_yield_on_return();
+    }
+  }
+}
+
+/**
  Check if the specified thread is to unblock
 */
 void 
-thread_check_sleep(struct thread *t, void* aux)
+func_thread_check_sleep(struct thread *t, void* aux)
 {
   (void)aux;
   enum intr_level old_level;
   ASSERT (is_thread (t));
   old_level = intr_disable (); // disable the interrupt for synchronization
+  int thread_waked = 0;
   if (t->status == THREAD_BLOCKED){
     if (--t->sleep_ticks==0){
       thread_unblock(t);
+      thread_waked = 1;
     }
+  }
+  if (thread_waked!=0){
+    thread_check_preemption();
   }
   intr_set_level(old_level);
 }
@@ -320,14 +362,16 @@ thread_exit (void)
 }
 
 /** Yields the CPU.  The current thread is not put to sleep and
-   may be scheduled again immediately at the scheduler's whim. */
+   may be scheduled again immediately at the scheduler's whim. 
+   Also schedule another process upon return 
+   */
 void
 thread_yield (void) 
 {
   struct thread *cur = thread_current ();
   enum intr_level old_level;
   
-  ASSERT (!intr_context ());
+  ASSERT (!intr_context ()); // not inside an external interrupt
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
@@ -509,14 +553,37 @@ alloc_frame (struct thread *t, size_t size)
    return a thread from the run queue, unless the run queue is
    empty.  (If the running thread can continue running, then it
    will be in the run queue.)  If the run queue is empty, return
-   idle_thread. */
+   idle_thread. 
+   Choose the thread of highest priority to return if run queue is not empty.
+   Also rember to pop the corresponding thread
+   */
+
 static struct thread *
 next_thread_to_run (void) 
 {
   if (list_empty (&ready_list))
     return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  // else choose the thread with the highest (donated) priority
+  // TODO: consider the multiple donation 
+  else{
+    ASSERT (intr_get_level () == INTR_OFF);
+    int max_priority = -1;
+    struct thread * t_highest = NULL;
+
+    // t_highest = list_entry (list_pop_front (&ready_list), struct thread, elem);
+    // return t_highest;
+
+    struct list_elem *e;
+    for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e)){
+      struct thread *t = list_entry (e, struct thread, elem);
+      if (t->priority > max_priority){
+        t_highest = t;
+        max_priority = t->priority;
+      }
+    }
+    list_remove(&t_highest->elem); // remember to remove the chosen thread from the ready list
+    return t_highest;
+  }
 }
 
 /** Completes a thread switch by activating the new thread's page
@@ -572,7 +639,8 @@ thread_schedule_tail (struct thread *prev)
 
    It's not safe to call printf() until thread_schedule_tail()
    has completed. */
-   // wzr: why the printf can not be called?
+   // TODO: why the printf can not be called?
+   // Take the thread of highest priority to be next to run
 static void
 schedule (void) 
 {
