@@ -89,8 +89,6 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  int64_t start = timer_ticks ();
-
   ASSERT (intr_get_level () == INTR_ON);
   struct thread *cur = thread_current ();
   cur->sleep_ticks = ticks;
