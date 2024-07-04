@@ -90,13 +90,15 @@ void
 timer_sleep (int64_t ticks) 
 {
   ASSERT (intr_get_level () == INTR_ON);
-  struct thread *cur = thread_current ();
-  cur->sleep_ticks = ticks;
+  
   // put the current thread to all list and sleep, then schedule another thread
   enum intr_level old_level = intr_disable ();
-  thread_block();
+  if (ticks>0){
+    struct thread *cur = thread_current ();
+    cur->sleep_ticks = ticks;
+    thread_block();
+  }
   intr_set_level (old_level);
-
 }
 
 /** Sleeps for approximately MS milliseconds.  Interrupts must be
