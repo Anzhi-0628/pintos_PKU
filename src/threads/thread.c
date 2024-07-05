@@ -204,7 +204,12 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   /* Add to run queue. */
+  enum intr_level old_level = intr_disable ();
   thread_unblock (t);
+  // if (strcmp(name, "idle")!=0){
+  thread_check_preemption();
+  // }
+  intr_set_level (old_level);
 
   return tid;
 }
@@ -402,7 +407,10 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  enum intr_level old_level = intr_disable();
   thread_current ()->priority = new_priority;
+  thread_check_preemption();
+  intr_set_level (old_level);
 }
 
 /** Returns the current thread's priority. */
