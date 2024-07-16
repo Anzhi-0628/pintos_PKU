@@ -247,14 +247,15 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  if (t != idle_thread){
+    list_push_back (&ready_list, &t->elem);
+  }
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
 
 /** 
   Return the elem of the thread with the highest priority
-  Todo: haven't considered the donation yet
 */
 int
 thread_highest_priority(void){
@@ -262,8 +263,9 @@ thread_highest_priority(void){
   struct list_elem* e;
   for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e)){
     struct thread *t = list_entry (e, struct thread, elem);
-    if (t->priority > max_priority){
-      max_priority = t->priority;
+    int priority = func_thread_get_priority(t);
+    if (priority > max_priority){
+      max_priority = priority;
     }
   }
   return max_priority;
@@ -277,7 +279,7 @@ thread_check_preemption(void)
 {
   ASSERT (intr_get_level () == INTR_OFF);// need to make sure the interrupt is disabled when preemption
   struct thread *cur = thread_current();
-  if (thread_highest_priority() > cur->priority){
+  if (thread_highest_priority() > func_thread_get_priority(cur)){
     // not inside the interrupt, just yield
     if (!intr_context()){
       thread_yield();
@@ -408,16 +410,37 @@ void
 thread_set_priority (int new_priority) 
 {
   enum intr_level old_level = intr_disable();
-  thread_current ()->priority = new_priority;
+  thread_current()->priority = new_priority;
   thread_check_preemption();
   intr_set_level (old_level);
+}
+
+
+/** Returns the given thread's priority. 
+    Also consider all the donated priority from the locks it holds.
+*/
+
+int
+func_thread_get_priority(struct thread* t)
+{
+  int max_priority = t->priority;
+  struct list_elem *e;
+  for (e = list_begin (&t->lock_list); e != list_end (&t->lock_list);
+       e = list_next (e))
+    {
+      struct lock *lock = list_entry (e, struct lock, lock_elem);
+      if (lock->lock_priority > max_priority){
+        max_priority = lock->lock_priority;
+      }
+    }
+  return max_priority;
 }
 
 /** Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  return func_thread_get_priority(thread_current());
 }
 
 /** Sets the current thread's nice value to NICE. */
@@ -538,6 +561,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  list_init(&t->lock_list);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -572,7 +596,6 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   // else choose the thread with the highest (donated) priority
-  // TODO: consider the multiple donation 
   else{
     ASSERT (intr_get_level () == INTR_OFF);
     int max_priority = -1;
@@ -584,9 +607,10 @@ next_thread_to_run (void)
     struct list_elem *e;
     for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e)){
       struct thread *t = list_entry (e, struct thread, elem);
-      if (t->priority > max_priority){
+      int priority = func_thread_get_priority(t);
+      if (priority > max_priority){
         t_highest = t;
-        max_priority = t->priority;
+        max_priority =priority;
       }
     }
     list_remove(&t_highest->elem); // remember to remove the chosen thread from the ready list

@@ -89,6 +89,7 @@ struct thread
     uint8_t *stack;                     /**< Saved stack pointer. */
     int priority;                       /**< Priority. */
     struct list_elem allelem;           /**< List element for all threads list. */
+    struct list lock_list; /** List for the holden locks by this thread. */
     int64_t sleep_ticks;  /**< The time ticks left to sleep */
 
     /* Shared between thread.c and synch.c. */
@@ -136,6 +137,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+int func_thread_get_priority(struct thread*);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
