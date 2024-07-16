@@ -17,11 +17,13 @@ bool sema_try_down (struct semaphore *);
 void sema_up (struct semaphore *);
 void sema_self_test (void);
 
-/** Lock. */
+/** Lock. Already have everything of a semaphore including the waiters*/
 struct lock 
   {
     struct thread *holder;      /**< Thread holding lock (for debugging). */
     struct semaphore semaphore; /**< Binary semaphore controlling access. */
+    struct list_elem lock_elem; /**< lock_list elem for the holding thread of this lock >*/
+    int lock_priority; /** highest priority of all the waiting threads, which will donate to the holder */
   };
 
 void lock_init (struct lock *);

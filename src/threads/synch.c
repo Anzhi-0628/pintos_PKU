@@ -29,6 +29,9 @@
 #include "threads/synch.h"
 #include <stdio.h>
 #include <string.h>
+#include "interrupt.h"
+#include "synch.h"
+#include "thread.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
@@ -57,6 +60,7 @@ sema_init (struct semaphore *sema, unsigned value)
    interrupt handler.  This function may be called with
    interrupts disabled, but if it sleeps then the next scheduled
    thread will probably turn interrupts back on. */
+   // But preemption is still allowed
 void
 sema_down (struct semaphore *sema) 
 {
@@ -113,9 +117,23 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+
+  // unblock the waiting thread of the highest priority
+  if (!list_empty (&sema->waiters)){
+    int max_priority = -1;
+    struct thread * t_highest = NULL;
+    struct list_elem *e;
+    for (e = list_begin (&sema->waiters); e != list_end (&sema->waiters); e = list_next (e)){
+      struct thread *t = list_entry (e, struct thread, elem);
+      int priority = func_thread_get_priority(t);
+      if (priority > max_priority){
+        t_highest = t;
+        max_priority = priority;
+      }
+    }
+    list_remove(&t_highest->elem); // remember to remove the chosen thread from the waiting list
+    thread_unblock(t_highest);
+  }
   sema->value++;
   intr_set_level (old_level);
 }
@@ -178,6 +196,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
+  lock->lock_priority = -1;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -189,6 +208,7 @@ lock_init (struct lock *lock)
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
+   // One thread can only waits for one lock, but it could acquire multiple, such that the priority can only donate towards one thread
 void
 lock_acquire (struct lock *lock)
 {
@@ -196,8 +216,21 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
+  bool success = lock_try_acquire(lock);
+  struct thread *cur_t = thread_current ();
+  enum intr_level old_level = intr_disable();// disable interrupt for updates
+  if (!success){
+    list_push_back(&lock->semaphore.waiters, &cur_t->elem);
+    int priority = func_thread_get_priority(cur_t);
+    if (priority > lock->lock_priority){
+      lock->lock_priority = priority; // can only update the lock, but not another thread
+    }
+    // while automatically donate to the lock holder as long as the current thread waits and yields
+    sema_down (&lock->semaphore); // wait until lock is released
+  }
+  lock->holder = cur_t;
+  list_push_back(&cur_t->lock_list, &lock->lock_elem);
+  intr_set_level (old_level);
 }
 
 /** Tries to acquires LOCK and returns true if successful or false
@@ -224,15 +257,32 @@ lock_try_acquire (struct lock *lock)
 
    An interrupt handler cannot acquire a lock, so it does not
    make sense to try to release a lock within an interrupt
-   handler. */
+   handler. 
+   lock_release might actually lead to a priority decrease, such that thread_preemption_check needs to be called afterwards
+   */
 void
 lock_release (struct lock *lock) 
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-
-  lock->holder = NULL;
   sema_up (&lock->semaphore);
+  enum intr_level old_level = intr_disable();
+  lock->holder = NULL;
+  // This is important otherwise the lock might be acquire multiple times by one thread, which causes infinite loops
+  list_remove(&lock->lock_elem); 
+  // Update the lock_priority here
+  struct list_elem *e;
+  int max_priority = -1;
+  for (e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters); e = list_next (e)){
+    struct thread *t = list_entry (e, struct thread, elem);
+    int priority = func_thread_get_priority(t);
+    if (priority > max_priority){
+      max_priority = priority;
+    }
+  }
+  lock->lock_priority = max_priority;
+  thread_check_preemption(); // the current thread might not be of the highest priority after releasing the lock
+  intr_set_level(old_level);
 }
 
 /** Returns true if the current thread holds LOCK, false
