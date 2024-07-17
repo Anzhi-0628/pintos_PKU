@@ -220,7 +220,6 @@ lock_acquire (struct lock *lock)
   struct thread *cur_t = thread_current ();
   enum intr_level old_level = intr_disable();// disable interrupt for updates
   if (!success){
-    list_push_back(&lock->semaphore.waiters, &cur_t->elem);
     int priority = func_thread_get_priority(cur_t);
     if (priority > lock->lock_priority){
       lock->lock_priority = priority; // can only update the lock, but not another thread
