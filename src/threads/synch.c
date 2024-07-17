@@ -220,7 +220,17 @@ lock_acquire (struct lock *lock)
   struct thread *cur_t = thread_current ();
   enum intr_level old_level = intr_disable();// disable interrupt for updates
   if (!success){
+    // recursively donate to the locks waited by the thread chain
+    cur_t->waiting_lock = lock;
+    struct thread * t_chain = cur_t;
     int priority = func_thread_get_priority(cur_t);
+    while(t_chain->waiting_lock){
+      struct lock * lock_chain = t_chain->waiting_lock;
+      if (priority > lock_chain->lock_priority){
+        lock_chain->lock_priority = priority;
+      }
+      t_chain = lock_chain->holder;
+    }
     if (priority > lock->lock_priority){
       lock->lock_priority = priority; // can only update the lock, but not another thread
     }
@@ -228,6 +238,7 @@ lock_acquire (struct lock *lock)
     sema_down (&lock->semaphore); // wait until lock is released
   }
   lock->holder = cur_t;
+  cur_t->waiting_lock = NULL; // remember the reset to NULL since the waiting lock has already been acquired
   list_push_back(&cur_t->lock_list, &lock->lock_elem);
   intr_set_level (old_level);
 }
@@ -270,6 +281,7 @@ lock_release (struct lock *lock)
   // This is important otherwise the lock might be acquire multiple times by one thread, which causes infinite loops
   list_remove(&lock->lock_elem); 
   // Update the lock_priority here
+  // No needs to update the chain priority recuisively since the lock_release only happens at the root thread
   struct list_elem *e;
   int max_priority = -1;
   for (e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters); e = list_next (e)){
