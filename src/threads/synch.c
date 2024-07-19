@@ -293,8 +293,8 @@ lock_release (struct lock *lock)
     }
   }
   lock->lock_priority = max_priority;
-  thread_check_preemption(); // the current thread might not be of the highest priority after releasing the lock
   intr_set_level(old_level);
+  thread_check_preemption(); // the current thread might not be of the highest priority after releasing the lock
 }
 
 /** Returns true if the current thread holds LOCK, false

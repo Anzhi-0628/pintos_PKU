@@ -204,12 +204,10 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   /* Add to run queue. */
-  enum intr_level old_level = intr_disable ();
   thread_unblock (t);
   // if (strcmp(name, "idle")!=0){
   thread_check_preemption();
   // }
-  intr_set_level (old_level);
 
   return tid;
 }
@@ -277,7 +275,6 @@ Thread preemption by a thread just in ready_list with higher priority
 void 
 thread_check_preemption(void)
 {
-  ASSERT (intr_get_level () == INTR_OFF);// need to make sure the interrupt is disabled when preemption
   struct thread *cur = thread_current();
   if (thread_highest_priority() > func_thread_get_priority(cur)){
     // not inside the interrupt, just yield
@@ -308,10 +305,10 @@ func_thread_check_sleep(struct thread *t, void* aux)
       thread_waked = 1;
     }
   }
+  intr_set_level(old_level);
   if (thread_waked!=0){
     thread_check_preemption();
   }
-  intr_set_level(old_level);
 }
 
 /** Returns the name of the running thread. */
@@ -409,10 +406,8 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  enum intr_level old_level = intr_disable();
   thread_current()->priority = new_priority;
   thread_check_preemption();
-  intr_set_level (old_level);
 }
 
 
