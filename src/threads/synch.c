@@ -276,12 +276,30 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-  sema_up (&lock->semaphore);
+  
   enum intr_level old_level = intr_disable();
-  lock->holder = NULL;
+  // Reset the lock information to be available
   // This is important otherwise the lock might be acquire multiple times by one thread, which causes infinite loops
+  lock->holder = NULL;
   list_remove(&lock->lock_elem); 
-  // Update the lock_priority here
+
+  // unblock the waiting thread of the highest priority
+  if (!list_empty (&lock->semaphore.waiters)){
+    int max_priority = -1;
+    struct thread * t_highest = NULL;
+    struct list_elem *e;
+    for (e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters); e = list_next (e)){
+      struct thread *t = list_entry (e, struct thread, elem);
+      int priority = func_thread_get_priority(t);
+      if (priority > max_priority){
+        t_highest = t;
+        max_priority = priority;
+      }
+    }
+    list_remove(&t_highest->elem);
+    thread_unblock(t_highest);
+  }
+  // reset the lock priority after unblocking and resetting the waiting threads
   // No needs to update the chain priority recuisively since the lock_release only happens at the root thread
   struct list_elem *e;
   int max_priority = -1;
@@ -293,6 +311,7 @@ lock_release (struct lock *lock)
     }
   }
   lock->lock_priority = max_priority;
+  lock->semaphore.value++;
   intr_set_level(old_level);
   thread_check_preemption(); // the current thread might not be of the highest priority after releasing the lock
 }
@@ -313,6 +332,7 @@ struct semaphore_elem
   {
     struct list_elem elem;              /**< List element. */
     struct semaphore semaphore;         /**< This semaphore. */
+    struct thread * thread;             /**< The thread which waits for the variable> */
   };
 
 /** Initializes condition variable COND.  A condition variable
@@ -357,6 +377,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
+  waiter.thread = thread_current();
   list_push_back (&cond->waiters, &waiter.elem);
   lock_release (lock);
   sema_down (&waiter.semaphore);
@@ -378,9 +399,21 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (!list_empty (&cond->waiters)) 
-    sema_up (&list_entry (list_pop_front (&cond->waiters),
-                          struct semaphore_elem, elem)->semaphore);
+  if (!list_empty (&cond->waiters)) {
+    struct list_elem*e;
+    int max_priority = -1;
+    struct semaphore_elem* waiter_max = NULL;
+    for (e = list_begin (&cond->waiters); e != list_end (&cond->waiters); e = list_next (e)){
+      struct semaphore_elem * waiter = list_entry(e, struct semaphore_elem, elem);
+      int priority = func_thread_get_priority(waiter->thread);
+      if (priority > max_priority){
+        max_priority = priority;
+        waiter_max = waiter;
+      }
+    }
+    list_remove(&waiter_max->elem);
+    sema_up(&waiter_max->semaphore);
+  }
 }
 
 /** Wakes up all threads, if any, waiting on COND (protected by
