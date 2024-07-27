@@ -406,8 +406,10 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current()->priority = new_priority;
-  thread_check_preemption();
+  if (!thread_mlfqs){
+    thread_current()->priority = new_priority;
+    thread_check_preemption();
+  }
 }
 
 
@@ -418,6 +420,9 @@ thread_set_priority (int new_priority)
 int
 func_thread_get_priority(struct thread* t)
 {
+  if (thread_mlfqs){
+    return t->priority;
+  }
   int max_priority = t->priority;
   struct list_elem *e;
   for (e = list_begin (&t->lock_list); e != list_end (&t->lock_list);
@@ -449,8 +454,7 @@ thread_set_nice (int nice UNUSED)
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /** Returns 100 times the system load average. */
@@ -554,7 +558,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->priority = priority;
+  if (!thread_mlfqs){
+    t->priority = priority;
+  }
+  t->nice = 0;
   t->magic = THREAD_MAGIC;
   list_init(&t->lock_list);
   t->waiting_lock = NULL;

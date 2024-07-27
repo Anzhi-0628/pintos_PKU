@@ -20,6 +20,9 @@
 /** Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+/* Load_avg for mlfqs*/
+static int load_avg;
+
 /** Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -178,6 +181,10 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   // Record that the current thread has already been running for another tick
+  if (ticks % TIMER_FREQ == 0){
+    // load_avg = load_avg * 59 / 60 + list_size(&ready_list);
+    // Todo: Not imlemented
+  }
   thread_tick ();
 }
 
