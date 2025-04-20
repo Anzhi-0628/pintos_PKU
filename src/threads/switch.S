@@ -12,6 +12,8 @@
 #### restore the registers.  As part of switching stacks we record the
 #### current stack pointer in CUR's thread structure.
 
+#### This code segments are also called by schedule().
+
 .globl switch_threads
 .func switch_threads
 switch_threads:
@@ -23,6 +25,8 @@ switch_threads:
 	#
 	# This stack frame must match the one set up by thread_create()
 	# in size.
+
+	# The values are always pushed to the stack place pointed by the register %esp
 	pushl %ebx
 	pushl %ebp
 	pushl %esi
@@ -30,9 +34,11 @@ switch_threads:
 
 	# Get offsetof (struct thread, stack).
 .globl thread_stack_ofs
+	# Save the stack offset in the struct thread of the element stack
 	mov thread_stack_ofs, %edx
 
 	# Save current stack pointer to old thread's stack, if any.
+	# 20: 4*5, the 5th is the return address, and this points to the argument cur
 	movl SWITCH_CUR(%esp), %eax
 	movl %esp, (%eax,%edx,1)
 

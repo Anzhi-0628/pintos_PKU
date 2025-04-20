@@ -1,6 +1,7 @@
 #include "userprog/process.h"
 #include <debug.h>
 #include <inttypes.h>
+#include "threads/malloc.h"
 #include <round.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,13 +19,17 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static thread_func start_process NO_RETURN; // the eip is NULL
+static bool load(const char *cmdline, void (**eip) (void), void **esp);
 
 /** Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
+// need to print the file_name when it gets terminated
+// for example, the file_name is args_none here
+// This needs to be extended to accept not only file_name, 
+// but also the whole command line.
 tid_t
 process_execute (const char *file_name) 
 {
@@ -39,6 +44,11 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
+  // so, it will call start_process with fn_copy as an aux argument
+  // and since only fn_copy is passed to start_process,
+  // we need to extend this for the arguments passing
+
+  char * cur_cmd_line = fn_copy;
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
@@ -47,6 +57,7 @@ process_execute (const char *file_name)
 
 /** A thread function that loads a user process and starts it
    running. */
+// Until here, the file_name includes the arguments still
 static void
 start_process (void *file_name_)
 {
@@ -59,9 +70,10 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load(file_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
+  // And the file_name is the base of the new page for the user stack
   palloc_free_page (file_name);
   if (!success) 
     thread_exit ();
@@ -85,10 +97,14 @@ start_process (void *file_name_)
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
+// It should wait for the child_tid to exit first.
+// For now, for the debug purpose, we dont want the kernel thread
+// to exit before the process thread, thus simply have it busy-waiting.
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+  while (1){}
+  exit(0);
 }
 
 /** Free the current process's resources. */
@@ -114,6 +130,9 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  // TODO: how to get the exit status when some process exits?
+  int exit_status = 0;
+  printf("%s: exit(%d)\n", cur->name, exit_status);
 }
 
 /** Sets up the CPU for running user code in the current
@@ -205,8 +224,10 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
+// For now, the user stack has not been setup yet, thus we
+// are still using the kernel stack, where the TCB resides.
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load(const char *cmd_line, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -222,12 +243,21 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  size_t cmd_len = strlen(cmd_line);
+  char* file_name = NULL;
+  char* cur_cmd_line = malloc(cmd_len + 1);
+  // this is only to track the start address of the allocated space,
+  // and for later to use for free call.
+  char* const start_cmd_line = cur_cmd_line; 
+
+  strlcpy(cur_cmd_line, cmd_line, cmd_len + 1);
+  file_name = strtok_r(cur_cmd_line, " ", &cur_cmd_line);
   file = filesys_open (file_name);
-  if (file == NULL) 
-    {
+
+  if (file == NULL) {
       printf ("load: %s: open failed\n", file_name);
       goto done; 
-    }
+  }
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -236,12 +266,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_machine != 3
       || ehdr.e_version != 1
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
-      || ehdr.e_phnum > 1024) 
-    {
+      || ehdr.e_phnum > 1024) {
       printf ("load: %s: error loading executable\n", file_name);
       goto done; 
-    }
-
+  }
   /* Read program headers. */
   file_ofs = ehdr.e_phoff;
   for (i = 0; i < ehdr.e_phnum; i++) 
@@ -291,6 +319,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
                   read_bytes = 0;
                   zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
                 }
+              // needs to do something here
               if (!load_segment (file, file_page, (void *) mem_page,
                                  read_bytes, zero_bytes, writable))
                 goto done;
@@ -305,12 +334,65 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (!setup_stack (esp))
     goto done;
 
+  // Set up the both the arguments and the
+  // return address (essentiall null)in the stack here
+
+  int argc = 1; // at least 1 because file_name already exists
+  int lens_total = 0;
+  // put the string of the file_name on stack first
+  *esp -= strlen(file_name) + 1;
+  strlcpy(*esp, file_name, strlen(file_name) + 1);
+  lens_total += strlen(file_name) + 1;
+
+  // put the data of the args on stack
+  // argv[i][..], i in 0..argc
+  char* next_arg = NULL;
+  for (next_arg = strtok_r(cur_cmd_line, " ", &cur_cmd_line); next_arg != NULL; next_arg = strtok_r(NULL, " ", &cur_cmd_line)) {
+    argc +=1 ;
+    *esp -= strlen(next_arg) + 1;
+    strlcpy(*esp, next_arg, strlen(next_arg) + 1);
+    lens_total += strlen(next_arg) + 1;
+  }
+  // store the address of the cuurent address
+  // for later use of address storing
+  char * cur_addr = *esp;
+  // world align
+  int world_align = ((lens_total -1 )/ 4 + 1) * 4 - lens_total;
+  *esp -= world_align;
+  
+  // store the addresses of the args somewhere first
+  char ** args_addrs = malloc(argc * sizeof(char*));
+  for (int i = 0; i < argc; ++i){
+    // the *esp store the char* data type,
+    // which means it's the char** type now
+    // * ((char **) *esp) = cur_addr;
+    * (args_addrs + i) = cur_addr;
+    cur_addr += strlen(cur_addr) + 1;
+  }
+
+  // argv[i], i in 0..argc]
+  *esp -= sizeof(char*); // this is for the empty argv[argc]
+  for (int i = 0; i < argc; ++i){
+    *esp -= sizeof(char*);
+    *((char**) *esp) = args_addrs[i];
+  }
+  // argv
+  *esp -= 4;
+  *((char***)*esp) = *esp + 4;
+  // argc
+  *esp -= 4;
+  * ((int*)*esp) = argc;
+  // return addr as null
+  *esp -= 4;
+
+
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
 
  done:
+  free(start_cmd_line);
   /* We arrive here whether the load is successful or not. */
   file_close (file);
   return success;
@@ -426,6 +508,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 /** Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
+// The user stack size is fixed as one page of size here
 static bool
 setup_stack (void **esp) 
 {

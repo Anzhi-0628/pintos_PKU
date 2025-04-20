@@ -167,6 +167,10 @@ thread_print_stats (void)
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
+
+// Start from here as the very beginning of how one process is involked by one thread
+// three frames are involved here for the procedure, and the last one will call the func with aux
+
 tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux) 
@@ -180,6 +184,15 @@ thread_create (const char *name, int priority,
   ASSERT (function != NULL);
 
   /* Allocate thread. */
+  // The very first page that is used for this thread
+  // And this also means the kernel stack size is less than one page
+  // Check this out for more details:
+  // https://pkuflyingpig.gitbook.io/pintos/appendix/reference-guide/threads#run-a-thread-for-the-first-time
+
+
+  // the first page will be used to keep the thread related information
+  // and the struct thread is at the beginning of the first page
+
   t = palloc_get_page (PAL_ZERO);
   if (t == NULL)
     return TID_ERROR;
@@ -190,9 +203,9 @@ thread_create (const char *name, int priority,
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
-  kf->eip = NULL;
-  kf->function = function;
-  kf->aux = aux;
+  kf->eip = NULL; // the eip is NULL because it never returns
+  kf->function = function; // the function here in the USERPROG is the start_process
+  kf->aux = aux; // the aux here in the USERPROG is fn_copy, which is the file_name and the arguments
 
   /* Stack frame for switch_entry(). */
   ef = alloc_frame (t, sizeof *ef);
@@ -558,6 +571,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
+  // the t is the very start of the page (0)
+  // and the init stack position is the t + PAGE_SIZE
   if (!thread_mlfqs){
     t->priority = priority;
   }
@@ -684,9 +699,11 @@ schedule (void)
   struct thread *prev = NULL;
 
   ASSERT (intr_get_level () == INTR_OFF);
-  ASSERT (cur->status != THREAD_RUNNING);
+  ASSERT (cur->status != THREAD_RUNNING); // should already been some other state like READY
   ASSERT (is_thread (next));
 
+  // this is important to understand how the thread switching is done
+  // and how the kernel knows which instruction is the next to run
   if (cur != next)
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
