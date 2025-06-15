@@ -3,6 +3,7 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 
 static void syscall_handler (struct intr_frame *);
 
@@ -19,6 +20,10 @@ syscall_handler (struct intr_frame *f)
   // retrieve the syscall number
   void * esp = f->esp;
   // how to I know the sys_no(arg_0) is at the top of esp
+  if (!is_user_vaddr(esp) || !pagedir_get_page(thread_current()->pagedir, esp)) {
+    thread_current()->exit_block->exit_status = -1;
+    thread_exit();
+  }
   int sys_no = *((int*)esp);
   switch (sys_no) {
     // void halt (void) NO_RETURN;
@@ -38,6 +43,36 @@ syscall_handler (struct intr_frame *f)
       char * file = *((char**)(esp + 4));
       break;
     }
+    
+    // int wait (pid_t);
+    case SYS_WAIT: {
+      break;
+    }
+
+    // bool create (const char *file, unsigned initial_size);
+    case SYS_CREATE: {
+      break;
+    }
+
+    // bool remove (const char *file);
+    case SYS_REMOVE: {
+      break;
+    }
+
+    // int open (const char *file);
+    case SYS_OPEN: {
+
+    }
+
+    // int filesize (int fd);
+    case SYS_FILESIZE: {
+      break;
+    }
+
+    // int read (int fd, void *buffer, unsigned length);
+    case SYS_READ: {
+      break;
+    }
 
     // int write (int fd, const void *buffer, unsigned length);
     case SYS_WRITE: {
@@ -48,6 +83,43 @@ syscall_handler (struct intr_frame *f)
         putbuf(buffer, length);
       }
       break;
+    }
+
+    // void seek (int fd, unsigned position);
+    case SYS_SEEK: {
+      break;
+    }
+
+    // unsigned tell (int fd);
+    case SYS_TELL: {
+      break;
+    }
+
+    // void close (int fd);
+    case SYS_CLOSE: {break;}
+
+    /** Project 3 and optionally project 4. */
+    // mapid_t mmap (int fd, void *addr);
+    case SYS_MMAP: {break;}
+    // void munmap (mapid_t);
+    case SYS_MUNMAP: {break;}
+
+    /** Project 4 only. */
+    // bool chdir (const char *dir);
+    case SYS_CHDIR: {break;}
+    // bool mkdir (const char *dir);
+    case SYS_MKDIR: {break;}
+    // bool readdir (int fd, char name[READDIR_MAX_LEN + 1]);
+    case SYS_READDIR: {break;}
+    // bool isdir (int fd);
+    case SYS_ISDIR: {break;}
+    // int inumber (int fd);
+    case SYS_INUMBER: {break;}
+
+    // unknown bad sys_no
+    default:{
+      thread_current()->exit_block->exit_status = -1;
+      thread_exit();
     }
   }
 }
