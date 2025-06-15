@@ -1,6 +1,8 @@
 #include <syscall.h>
 #include "../syscall-nr.h"
 
+// This file defines the interface to users to trigger the syscall
+
 /** Invokes syscall NUMBER, passing no arguments, and returns the
    return value as an `int'. */
 #define syscall0(NUMBER)                                        \

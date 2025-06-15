@@ -4,6 +4,8 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -97,6 +99,10 @@ struct thread
     struct list_elem elem;              /**< List element. */
     struct lock * waiting_lock; /** The lock currently waited by the thread */
 
+    // since we only have one thread for each process, this is ok, otherwise we need
+    // to have two list to keep all the children waited by this thread
+    struct thread_exit_block * exit_block; 
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
@@ -105,6 +111,18 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /**< Detects stack overflow. */
   };
+
+struct thread_exit_block {
+   tid_t tid;
+   int exit_status;
+   struct semaphore exit_sema;
+};
+
+// to keep both the fn_copy and the exit_block as the starter aux of start_process
+struct start_aux_info {
+   char * fn_copy;
+   struct thread_exit_block *exit_block;
+};
 
 /** If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

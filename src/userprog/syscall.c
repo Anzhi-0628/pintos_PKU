@@ -14,8 +14,29 @@ syscall_init (void)
 
 // need to add something here to extract from the stack (esp) of the intr_frame
 static void
-syscall_handler (struct intr_frame *f UNUSED) 
+syscall_handler (struct intr_frame *f) 
 {
-  printf ("system call!\n");
-  thread_exit ();
+  // retrieve the syscall number
+  void * esp = f->esp;
+  // how to I know the sys_no(arg_0) is at the top of esp
+  int sys_no = *((int*)esp);
+  switch (sys_no) {
+    case 0: {
+      break;
+    }
+    // void exit (int status) NO_RETURN;
+    case 1: {
+      struct thread* t = thread_current();
+      t->exit_block->exit_status = *((int*)(esp + 4));
+      thread_exit();
+    }
+
+    // int write (int fd, const void *buffer, unsigned length);
+    case 9: {
+      int fd = *((int*)(esp + 4));
+      char * buffer = *((char**)(esp + 8));
+      int length = *((int*)(esp + 12));
+      putbuf(buffer, length);
+    }
+  }
 }

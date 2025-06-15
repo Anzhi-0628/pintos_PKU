@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "interrupt.h"
+#include "synch.h"
 #include "thread.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
@@ -200,12 +201,16 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  // init the exit_block
+  struct start_aux_info* aux_info = aux;
+  t->exit_block = aux_info->exit_block;
+  // Can not init the exit block because the aux might be NULL
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
   kf->eip = NULL; // the eip is NULL because it never returns
   kf->function = function; // the function here in the USERPROG is the start_process
-  kf->aux = aux; // the aux here in the USERPROG is fn_copy, which is the file_name and the arguments
+  kf->aux = aux_info; // the aux here includes fn_copy, which is the file_name and the arguments
 
   /* Stack frame for switch_entry(). */
   ef = alloc_frame (t, sizeof *ef);
@@ -372,7 +377,12 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
+  struct thread * t = thread_current();
   list_remove (&thread_current()->allelem);
+  // call sema_up before setting the status, since sema_up needs the current thread to be running
+  // dont need to care about the time interrupt since its disabled
+  // and dont need to care about the thread_check_preemption since the idle has lower level
+  sema_up(&t->exit_block->exit_sema);
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
@@ -689,7 +699,6 @@ thread_schedule_tail (struct thread *prev)
 
    It's not safe to call printf() until thread_schedule_tail()
    has completed. */
-   // TODO: why the printf can not be called?
    // Take the thread of highest priority to be next to run
 static void
 schedule (void) 

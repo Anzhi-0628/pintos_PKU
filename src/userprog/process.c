@@ -48,10 +48,18 @@ process_execute (const char *file_name)
   // and since only fn_copy is passed to start_process,
   // we need to extend this for the arguments passing
 
-  char * cur_cmd_line = fn_copy;
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
+  // Need to use dynamic since threads does not share local variables on stack
+  struct start_aux_info *aux_info = malloc(sizeof(struct start_aux_info));
+  aux_info->fn_copy = fn_copy;
+  struct thread_exit_block * exit_block = malloc(sizeof(struct thread_exit_block));
+  sema_init(&exit_block->exit_sema, 0);
+  thread_current()->exit_block = exit_block;
+  aux_info->exit_block  = exit_block;
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, aux_info);
+  if (tid == TID_ERROR){
     palloc_free_page (fn_copy); 
+    free(aux_info);
+  }
   return tid;
 }
 
@@ -59,13 +67,16 @@ process_execute (const char *file_name)
    running. */
 // Until here, the file_name includes the arguments still
 static void
-start_process (void *file_name_)
+start_process (void *aux_info)
 {
-  char *file_name = file_name_;
+  // Set the file name for the process
+  char *file_name = ((struct start_aux_info *)aux_info)->fn_copy;
   struct intr_frame if_;
   bool success;
 
   /* Initialize interrupt frame and load executable. */
+  // This also sets the priority of the thread. And it will be popped out
+  // to set the register
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
@@ -75,6 +86,7 @@ start_process (void *file_name_)
   /* If load failed, quit. */
   // And the file_name is the base of the new page for the user stack
   palloc_free_page (file_name);
+  free(aux_info);
   if (!success) 
     thread_exit ();
 
@@ -98,13 +110,16 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 // It should wait for the child_tid to exit first.
-// For now, for the debug purpose, we dont want the kernel thread
+// For now, for the debug purpose, we don't want the kernel thread
 // to exit before the process thread, thus simply have it busy-waiting.
 int
 process_wait (tid_t child_tid) 
 {
-  while (1){}
-  exit(0);
+  bool child_running = true;
+  int exit_status = 0;
+  struct thread* t = thread_current();
+  sema_down(&t->exit_block->exit_sema);
+  return t->exit_block->exit_status;
 }
 
 /** Free the current process's resources. */

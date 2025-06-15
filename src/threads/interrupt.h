@@ -17,6 +17,8 @@ enum intr_level intr_enable (void);
 enum intr_level intr_disable (void);
 
 /** Interrupt stack frame. */
+// Is is stored on kernel stack, by pushing the values in order
+// And it is used several places, mainly for intr handlers
 struct intr_frame
   {
     /* Pushed by intr_entry in intr-stubs.S.
@@ -48,6 +50,8 @@ struct intr_frame
 
     /* Pushed by the CPU.
        These are the interrupted task's saved registers. */
+    // These values will be set upon the process is resumed from an interrupt
+    // iret takes care of it.
     void (*eip) (void);         /**< Next instruction to execute. */
     uint16_t cs, :16;           /**< Code segment for eip. */
     uint32_t eflags;            /**< Saved CPU flags. */
