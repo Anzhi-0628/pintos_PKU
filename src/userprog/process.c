@@ -119,6 +119,7 @@ process_wait (tid_t child_tid)
   int exit_status = 0;
   struct thread* t = thread_current();
   sema_down(&t->exit_block->exit_sema);
+  free(t->exit_block);
   return t->exit_block->exit_status;
 }
 
@@ -145,8 +146,8 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-  // TODO: how to get the exit status when some process exits?
-  int exit_status = 0;
+  // Get the exit_info from the exit_block and free the resources
+  int exit_status = thread_current()->exit_block->exit_status;
   printf("%s: exit(%d)\n", cur->name, exit_status);
 }
 
