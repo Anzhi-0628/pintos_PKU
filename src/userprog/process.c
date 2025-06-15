@@ -268,6 +268,8 @@ load(const char *cmd_line, void (**eip) (void), void **esp)
 
   strlcpy(cur_cmd_line, cmd_line, cmd_len + 1);
   file_name = strtok_r(cur_cmd_line, " ", &cur_cmd_line);
+  // update the name of thread during loading
+  strlcpy(thread_current()->name, file_name, strlen(file_name) + 1);
   file = filesys_open (file_name);
 
   if (file == NULL) {

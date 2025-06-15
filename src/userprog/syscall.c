@@ -21,22 +21,33 @@ syscall_handler (struct intr_frame *f)
   // how to I know the sys_no(arg_0) is at the top of esp
   int sys_no = *((int*)esp);
   switch (sys_no) {
-    case 0: {
-      break;
+    // void halt (void) NO_RETURN;
+    case SYS_HALT: {
+      thread_exit();
     }
+  
     // void exit (int status) NO_RETURN;
-    case 1: {
+    case SYS_EXIT: {
       struct thread* t = thread_current();
       t->exit_block->exit_status = *((int*)(esp + 4));
       thread_exit();
     }
 
+    // pid_t exec (const char *file);
+    case SYS_EXEC: {
+      char * file = *((char**)(esp + 4));
+      break;
+    }
+
     // int write (int fd, const void *buffer, unsigned length);
-    case 9: {
+    case SYS_WRITE: {
       int fd = *((int*)(esp + 4));
-      char * buffer = *((char**)(esp + 8));
-      int length = *((int*)(esp + 12));
-      putbuf(buffer, length);
+      if (fd == 1) {
+        char * buffer = *((char**)(esp + 8));
+        int length = *((int*)(esp + 12));
+        putbuf(buffer, length);
+      }
+      break;
     }
   }
 }
